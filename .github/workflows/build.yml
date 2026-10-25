@@ -16,13 +16,13 @@ jobs:
   macos:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+        run: packaging/ci_run.sh cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        run: packaging/ci_run.sh cmake --build build --config Release --parallel
 
       - name: Sign (ad-hoc)
         run: |
@@ -40,9 +40,11 @@ jobs:
 
       - name: Package
         run: |
-          VERSION=$(grep -m1 -oE 'project\(DubStation VERSION [0-9.]+' CMakeLists.txt | grep -oE '[0-9.]+$')
-          packaging/make_pkg.sh "$VERSION" build/DubStation_artefacts/Release dist
-          cd build/DubStation_artefacts/Release/VST3 && zip -qry "../../../../dist/DubStation-$VERSION-macOS-VST3.zip" "Dub Station.vst3"
+          VERSION=$(sed -nE 's/^project\(DubStation VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          echo "version: $VERSION"
+          packaging/ci_run.sh packaging/make_pkg.sh "$VERSION" build/DubStation_artefacts/Release dist
+          mkdir -p dist
+          (cd build/DubStation_artefacts/Release/VST3 && packaging_zip="$GITHUB_WORKSPACE/dist/DubStation-$VERSION-macOS-VST3.zip" && zip -qry "$packaging_zip" "Dub Station.vst3")
 
       - uses: actions/upload-artifact@v4
         with:
@@ -52,13 +54,15 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configure
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+        shell: bash
+        run: packaging/ci_run.sh cmake -B build -A x64
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        shell: bash
+        run: packaging/ci_run.sh cmake --build build --config Release --parallel
 
       - name: Package
         shell: pwsh
@@ -75,7 +79,7 @@ jobs:
   tests:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install libraries
         run: |
           sudo apt-get update
