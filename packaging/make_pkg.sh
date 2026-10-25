@@ -13,7 +13,12 @@ component_pkg() # name, root, install-location
 {
     pkgbuild --analyze --root "$2" "$work/$1.plist"
     # always install to the standard folder, never "relocate" onto an older copy somewhere else
-    /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$work/$1.plist"
+    local pb=/usr/libexec/PlistBuddy i=0
+    while "$pb" -c "Print :$i" "$work/$1.plist" > /dev/null 2>&1; do
+        "$pb" -c "Set :$i:BundleIsRelocatable false" "$work/$1.plist" 2> /dev/null \
+            || "$pb" -c "Add :$i:BundleIsRelocatable bool false" "$work/$1.plist"
+        i=$((i + 1))
+    done
     pkgbuild --root "$2" --component-plist "$work/$1.plist" --install-location "$3" \
         --identifier "ch.nachtaktiv.dubstation.$1" --version "$version" "$work/$1.pkg"
 }
