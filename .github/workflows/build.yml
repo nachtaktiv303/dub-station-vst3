@@ -1,0 +1,109 @@
+# Builds Dub Station for macOS (VST3 + AU, Apple Silicon + Intel) and Windows (VST3) on every push.
+# A tag like v1.0.0 also publishes the files as a GitHub Release.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Sign (ad-hoc)
+        run: |
+          cd build/DubStation_artefacts/Release
+          codesign --force --deep --sign - "VST3/Dub Station.vst3"
+          codesign --force --deep --sign - "AU/Dub Station.component"
+
+      - name: Validate AU
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "build/DubStation_artefacts/Release/AU/Dub Station.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -v aufx DbSt Nakt
+
+      - name: Package
+        run: |
+          VERSION=$(grep -m1 -oE 'project\(DubStation VERSION [0-9.]+' CMakeLists.txt | grep -oE '[0-9.]+$')
+          packaging/make_pkg.sh "$VERSION" build/DubStation_artefacts/Release dist
+          cd build/DubStation_artefacts/Release/VST3 && zip -qry "../../../../dist/DubStation-$VERSION-macOS-VST3.zip" "Dub Station.vst3"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DubStation-macOS
+          path: dist/*
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path CMakeLists.txt -Pattern 'project\(DubStation VERSION ([0-9.]+)' | Select-Object -First 1).Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "build/DubStation_artefacts/Release/VST3/Dub Station.vst3" -DestinationPath "dist/DubStation-$version-Windows-VST3.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DubStation-Windows
+          path: dist/*
+
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb
+      - name: Build tests
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DDUB_BUILD_TESTS=ON
+          cmake --build build --target DubStationTests --parallel
+      - name: Run tests
+        run: xvfb-run -a build/DubStationTests_artefacts/Release/DubStationTests
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows, tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body: |
+            **Mac:** `DubStation-…-macOS.pkg` installiert VST3 und AU (Apple Silicon und Intel).
+            Weil das Plugin nicht bei Apple signiert ist, blockiert macOS den Installer beim ersten Öffnen:
+            danach *Systemeinstellungen → Datenschutz & Sicherheit → Trotzdem öffnen*.
+
+            **Windows:** `DubStation-…-Windows-VST3.zip` entpacken und `Dub Station.vst3`
+            nach `C:\Program Files\Common Files\VST3` kopieren.
