@@ -45,7 +45,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-Bei jedem Push baut GitHub Actions automatisch Mac und Windows. Ein Tag wie `v1.0.1` erstellt daraus ein Release.
+Bei jedem Push baut GitHub Actions automatisch Mac und Windows und stellt die Dateien unter Releases bereit. Die Versionsnummer steht in `CMakeLists.txt` (`project(DubStation VERSION …)`); eine neue Nummer ergibt ein neues Release.
 
 ## Aufbau
 
